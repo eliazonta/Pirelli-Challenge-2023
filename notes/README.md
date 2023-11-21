@@ -15,3 +15,6 @@
 ### Next steps
 
 ## xxxxxx
+
+- Stacking different models all toghether
+- Check if is possible 
