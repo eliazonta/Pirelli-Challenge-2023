@@ -9,15 +9,19 @@ import pandas as pd
 import seaborn as sns
 import sklearn.preprocessing as preprocessing
 from custom_print import *
-from evaluations import *
+from src.prediction.evaluations_regressions import *
 from scipy import stats
 from sklearn import metrics, preprocessing, svm
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import (accuracy_score, classification_report,
-                             confusion_matrix, mean_squared_error, r2_score)
+                             confusion_matrix, mean_squared_error, r2_score, silhouette_score)
+from sklearn.feature_selection import VarianceThreshold
 from sklearn.model_selection import train_test_split
 from sklearn.svm import SVR
+from sklearn.cluster import KMeans
+import multiprocessing
+from joblib import Parallel, delayed
 
 warnings.filterwarnings('ignore')
 pd.set_option('display.min_rows', 30)
@@ -266,12 +270,133 @@ def analyse_generated_dataset(mach_index):
         plt.draw()
         plt.waitforbuttonpress(0) # this will wait for indefinite time
         plt.close('all')
+        
+def get_df(index):
+    mach_list = os.listdir('src/Data/data_per_machine/2022/processed/')
+    current_machine = mach_list[index].replace('.csv','')
+    df = pd.read_csv('src/Data/data_per_machine/2022/processed/' + mach_list[index])
+    df['machine'] = current_machine
+    return df
+
+class Cluster_Mach():
+    def __init__(self, df) -> None:
+        self_df = df
     
+    def single_kmeans_eval(self, df, n):
+        
+        print_info(f"Eval number of clusters: {n}")
+        model = KMeans(n_clusters=n, n_init="auto", max_iter=1000, random_state=42)
+        label = model.fit_predict(df[['n_barcode']])
+        curr_sil_score = silhouette_score(df[['n_barcode']], label)
+        curr_mse = silhouette_score(df[['n_barcode']], label)
+        
+        return curr_sil_score, curr_mse
+    
+    def eval_n_cluster(self):
+        n_cores = multiprocessing.cpu_count()
+        sil_score = []
+        mse = []
+        
+        max = 15
+        if max > n_cores:
+            max = n_cores
+        
+        sil_score, mse = zip(*Parallel(n_jobs=n_cores)(delayed(self.single_kmeans_eval)(df, i) for i in range(2, max)))
+        figure, ax = plt.subplots(1,2, figsize=(20,5))
+        ax[0].plot(range(2,max), sil_score)
+        ax[0].set_title('Silhouette Score n clusters of n barcode')
+        ax[0].set_xlabel('Number of clusters')
+        ax[0].set_ylabel('Score')
+        ax[0].set_xticks(range(0,max))
+        ax[0].grid()
+        ax[1].plot(range(2,max), mse)
+        ax[1].set_title('MSE n clusters of n barcode')
+        ax[1].set_xlabel('Number of clusters')
+        ax[1].set_ylabel('Score')
+        ax[1].set_xticks(range(0,max))
+        plt.grid()
+        plt.savefig('src/prediction/figures/n_cluster_eval_n_barcode.png')
+        plt.show()
+        
+        figure, ax = plt.subplots(1,2, figsize=(20,5))
+        ax[0].plot(range(2,10), sil_score[0:8])
+        ax[0].set_title('Silhouette Score n clusters of n barcode')
+        ax[0].set_xlabel('Number of clusters')
+        ax[0].set_ylabel('Score')
+        ax[0].set_xticks(range(2,10))
+        ax[0].grid()
+        ax[1].plot(range(2,10), mse[0:8])
+        ax[1].set_title('MSE n clusters of n barcode')
+        ax[1].set_xlabel('Number of clusters')
+        ax[1].set_ylabel('Score')
+        ax[1].set_xticks(range(0,10))
+        plt.grid()
+        plt.savefig('src/prediction/figures/n_cluster_ZOOMED_eval_n_barcode.png')
+        plt.show()
+        
+    def plot_kmeans(self, df, n):
+        model = KMeans(n_clusters=n, n_init="auto", max_iter=1000, random_state=42)
+        label = model.fit_predict(df[['n_barcode']])
+        df['cluster_label'] = label
+        centroids = model.cluster_centers_
+        sns.scatterplot(data=df, x='n_barcode', y='work_time', hue='cluster_label')
+        plt.vlines(x=centroids, ymin=0, ymax=25000, colors='tab:red', ls='--', lw=2)
+        plt.title(f'KMeans on barcode processed every 6H n clusters: {n}')
+        plt.savefig('src/prediction/figures/kmeans_n_barcode.png')
+        plt.show()
+        
+    def label_barcode_clusters(self, df, n):
+        model = KMeans(n_clusters=n, n_init="auto", max_iter=1000, random_state=42)
+        label = model.fit_predict(df[['n_barcode']])
+        df['cluster_label'] = label
+        
+        label_L = model.fit_predict(df[['n_barcode_L']])
+        df['cluster_label_L'] = label_L
+        label_R = model.fit_predict(df[['n_barcode_R']])
+        df['cluster_label_R'] = label_R
+        
+        return df
+    
+    def feature_selection(self, df):
+        
+        fs = VarianceThreshold(threshold=150)
+        sel = fs.fit_transform(df)
+        name = fs.get_feature_names_out()
+        print(name)
+        print_info(f"Number of features: {df.shape[1]}")
+        print_info(f"Number of selected features: {len(name)}")
+        df = df[name]
+        return df
+        
 
 if __name__ == "__main__":
-    for i in range(len(os.listdir('src/Data/data_per_machine/2022/raw/'))):
-        df_machine, current_machine = set_machine_df(i)
-        save_df(df_machine, 'src/Data/data_per_machine/2022/processed/'+ current_machine + '.csv')
-    df_machine, current_machine = set_machine_df(0)    
-    analyse_generated_dataset(0)
+    # for i in range(len(os.listdir('src/Data/data_per_machine/2022/raw/'))):
+    #     df_machine, current_machine = set_machine_df(i)
+    #     save_df(df_machine, 'src/Data/data_per_machine/2022/processed/'+ current_machine + '.csv')
+    # df_machine, current_machine = set_machine_df(0)
+    # analyse_generated_dataset(0)
+    # dfs = []
+    # for i in range(len(os.listdir('src/Data/data_per_machine/2022/processed/'))):
+    #     curr = get_df(i)
+    #     dfs.append(get_df(i))
+    # df = pd.concat(dfs)
+    # clusterizer = Cluster_Mach(df)
+    # # clusterizer.eval_n_cluster()
+    # clusterizer.plot_kmeans(df, 5)
+    # df = clusterizer.label_barcode_clusters(df, 5)
+    
+    # save_df(df, 'src/Data/data_per_machine/2022/all_mach_clusters.csv')
+    
+    df = pd.read_csv('src/Data/data_per_machine/2022/all_mach_clusters.csv')
+    clusterizer = Cluster_Mach(df)
+    tmp_col = df[['y-m-day-hour_3_rounded', 'machine', 'cluster_label', 'cluster_label_L', 'cluster_label_R']]
+    df = df.drop(columns=['y-m-day-hour_3_rounded', 'machine', 'cluster_label', 'cluster_label_L', 'cluster_label_R'])
+    df = clusterizer.feature_selection(df)
+    df = tmp_col.join(df)
+    save = df.to_csv('src/Data/data_per_machine/2022/all_mach_clusters_selected.csv', index=False)
+    
+    
+    
+    
+    
     
