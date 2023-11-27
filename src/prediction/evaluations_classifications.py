@@ -73,7 +73,6 @@ def evaluations(x,y, f, desc = None):
 if __name__ == '__main__':
     
     df = pd.read_csv("src/Data/data_per_machine/2022/all_mach_clusters_selected.csv")
-    print_info(df.columns)
     df =  df.drop(['cumulative_per_day_CYCLE_COMPLETED_day'], axis=1)
     df = df.drop(['cumulative_per_day_CYCLE_ABORTED_day'], axis=1)
     df = df.drop(['cumulative_per_day_CYCLE_COMPLETED_L_day'], axis=1)
@@ -82,6 +81,7 @@ if __name__ == '__main__':
     df = df.fillna(0)
     y = df['cluster_label'].to_numpy()
     x = df.drop(['cluster_label','cluster_label_R', 'cluster_label_L'], axis=1).to_numpy()
+    x, x_test, y, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
     
     model_svm = evaluations(x,y, svm_class, "SVM")
     model_sgd = evaluations(x,y, sgd_class, "SGD")
@@ -89,7 +89,7 @@ if __name__ == '__main__':
     
     
     figure, ax = plt.subplots(1,2)
-    sns.heatmap(confusion_matrix(y, model_svm.predict(x)), annot=True, ax=ax[0])
-    sns.heatmap(confusion_matrix(y, model_sgd.predict(x)), annot=True, ax=ax[1])
+    sns.heatmap(confusion_matrix(y_test, model_svm.predict(x_test)), annot=True, ax=ax[0])
+    sns.heatmap(confusion_matrix(y_test, model_sgd.predict(x_test)), annot=True, ax=ax[1])
     
     plt.show()

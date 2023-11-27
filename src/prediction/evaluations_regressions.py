@@ -16,14 +16,32 @@ import torch
 import torch.nn as nn
 from sklearn.pipeline import make_pipeline
 
+
+from sklearn.linear_model import RidgeCV
+from sklearn.svm import LinearSVR
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import StackingRegressor
+from sklearn.ensemble import AdaBoostRegressor
+
+def adaboost_regression(x,y):
+    print_configs("Model: AdaBoost")
+    model = AdaBoostRegressor(random_state=0, n_estimators=100).fit(x, y)
+    return model
+
+def stack_regression(x,y):
+    estimators = [('adaboost', AdaBoostRegressor(random_state=0, n_estimators=100)), ('svr', SVR(kernel='rbf', C=1.0, epsilon=0.2))]
+    model = StackingRegressor(estimators=estimators, final_estimator=GradientBoostingRegressor(n_estimators=10,random_state=42)).fit(x, y)
+    return model
+
 def log_regression(x,y):
     print_configs("Model: Logistic Regression")
     model = LogisticRegression(random_state=0).fit(x, y)
     return model
 
 def svr_regression(x,y):
+    # 'linear', 'poly', 'rbf', 'sigmoid', 'precomputed'
     print_configs("Model: SVR")
-    model = LinearSVR(C=1.0, epsilon=0.2).fit(x, y)
+    model = SVR(kernel='poly', C=1.0, epsilon=0.2).fit(x, y)
     return model
     
 def lin_regr(x, y):
@@ -105,9 +123,9 @@ def evaluations(x,y, f, desc = None):
     r2 = r2_score(y_test, model_prediction)
     print_info("Metrics are:\n Accuracy: {}\n MSE: {} \n R2: {}\n\n".format(accuracy_score, mse, r2))
     
-    print_info("Predictions:")
-    for i in range(len(y_test)//20):
-        print("y_test[{}]: {}, model_prediction[{}]: {}".format(i, y_test[i], i, model_prediction[i]))
+    # print_info("Predictions:")
+    # for i in range(len(y_test)//20):
+    #     print("y_test[{}]: {}, model_prediction[{}]: {}".format(i, y_test[i], i, model_prediction[i]))
     
     return model
 
@@ -134,16 +152,11 @@ def evaluations_on_new_data(x,y, f, desc = None):
     r2 = r2_score(y_test, model_prediction)
     print_info("Metrics are:\n Accuracy: {}\n MSE: {} \n R2: {}\n\n".format(accuracy_score, mse, r2))
     
-    print_info("Predictions:")
-    for i in range(len(y_test)//20):
-        print("y_test[{}]: {}, model_prediction[{}]: {}".format(i, y_test[i], i, model_prediction[i]))
+    # print_info("Predictions:")
+    # for i in range(len(y_test)//20):
+    #     print("y_test[{}]: {}, model_prediction[{}]: {}\n\n".format(i, y_test[i], i, model_prediction[i]))
     
     return model
-    
-    
-    
-    
-    
 
 def linearize_input(df, side = None):
     list_status = ['CYCLE_COMPLETED', 'CYCLE_ABORTED', 'CYCLE_NOT_STARTED', 'CYCLE_COMPLETED_L', 'CYCLE_ABORTED_L', 'CYCLE_NOT_STARTED_L',
@@ -164,7 +177,7 @@ def linearize_input(df, side = None):
 
 
 def get_data(mach_index):
-    file_dir = 'src/Data/data_per_machine/2022/processed/'
+    file_dir = 'src/Data/data_per_machine/2022/processed_with_cumulatives/'
     file_list = os.listdir(file_dir)
     mach_name = [file.replace('.csv','') for file in file_list]
     file = file_dir + file_list[mach_index]
@@ -173,16 +186,61 @@ def get_data(mach_index):
     print_configs(f"Machine: {current_machine}")
     return df, current_machine
 
+def split_tot_L_R_df(df):
+    list_col = df.columns.to_list()
+    list_tot_col = []
+    list_L_col = []
+    list_R_col = []
+    for col in list_col:
+        if '_L' in col:
+            list_L_col.append(col)
+        elif '_R' in col:
+            list_R_col.append(col)
+        else:
+            list_tot_col.append(col)
+    df_tot = df[list_tot_col]
+    df_L = df[list_L_col]
+    df_R = df[list_R_col]
+    return df_tot, df_L, df_R
+
+def get_x_y(df):
+    cols = df.columns.to_list()
+    for col in cols:
+        if 'cumulative_per_day_n_barcode' in col:
+            y = df[col].to_numpy()
+    cols_to_drop = ['y-m-day-hour_6_rounded', 'cumulative_per_day_n_barcode',
+       'cumulative_per_day_n_barcode_L', 'cumulative_per_day_n_barcode_R',
+       'CYCLE_NOT_STARTED', 'CYCLE_NOT_STARTED_L', 'CYCLE_NOT_STARTED_R',
+       'cumulative_per_day_CYCLE_COMPLETED',
+       'cumulative_per_day_CYCLE_ABORTED',
+       'cumulative_per_day_CYCLE_NOT_STARTED',
+       'cumulative_per_day_CYCLE_COMPLETED_L',
+       'cumulative_per_day_CYCLE_ABORTED_L',
+       'cumulative_per_day_CYCLE_NOT_STARTED_L',
+       'cumulative_per_day_CYCLE_COMPLETED_R',
+       'cumulative_per_day_CYCLE_ABORTED_R',
+       'cumulative_per_day_CYCLE_NOT_STARTED_R']
+    _cols_to_drop = []
+    for col in cols_to_drop:
+        if col in cols:
+            _cols_to_drop.append(col)
+    
+    df = df.drop(columns=_cols_to_drop)
+    x_cols = df.columns.to_list()
+    x = df.to_numpy()
+    return x, y, x_cols
+
 if __name__ == '__main__':
-    train_df = []
-    for i in range(5):
+    dfs = []
+    for i in range(20):
         df, current_machine = get_data(i)
-        train_df.append(df)
-    df = pd.concat(train_df)
-    df = df.fillna(0)
-    df.drop(columns=['y-m-day-hour_3_rounded'], inplace=True)
-    x, x_df = linearize_input(df)
-    y = df['cluster_label'].to_numpy()
+        print_debugging(current_machine)
+        dfs.append(df)
+    df = pd.concat(dfs)
+    
+    df_tot, df_L, df_R = split_tot_L_R_df(df)
+    
+    x, y , x_cols= get_x_y(df_tot)
     
     # model = evaluations(x,y, log_regression, desc = "Logistic Regression")
     pca = decomposition.PCA(n_components=1)
@@ -196,6 +254,8 @@ if __name__ == '__main__':
     model_perceptron = evaluations(scale_x,scale_y, perceptron, desc = "Perceptron")
     model_naive_bayes = evaluations(scale_x,scale_y, naive_bayes, desc = "Naive Bayes")
     model_ml_nn = evaluations(scale_x,scale_y, ml_nn, desc = "Multi Layer Perceptron")
+    model_stack = evaluations(scale_x,scale_y, stack_regression, desc = "Stacking")
+    model_adaboost = evaluations(scale_x,scale_y, adaboost_regression, desc = "AdaBoost")
     
     
     # model_gb_ = evaluations_on_new_data(scale_x,scale_y, grad_boost, desc = "Gradient Boosting")
@@ -214,7 +274,7 @@ if __name__ == '__main__':
     ax1.grid()
     ax1.set_xlim(0,300)
     ax2.plot(scale_y, label='Actual')
-    ax2.plot(model_lin.predict(scale_x), label='Linear Regression')
+    ax2.plot(model_svr.predict(scale_x), label='SVR')
     ax2.legend()
     ax2.grid()
     ax2.set_xlim(0,300)
@@ -224,17 +284,17 @@ if __name__ == '__main__':
     ax3.grid()
     ax3.set_xlim(0,300)
     figure[0].set_size_inches(20,30)
-    plt.xlabel(f'PCA Components: {x_df.columns}')
+    plt.xlabel(f'PCA Components: {x_cols}')
     plt.ylabel('Cumulative Aborted Cycles per day')
     plt.savefig('src/prediction/figures/evaluations_of_models_PCA_Over_COmulative_Cycle_Aborted.png')
     plt.show()
     
     
-    # from lime import lime_tabular
-    # explainer = lime_tabular.LimeTabularExplainer(scale_x, feature_names=x_df.columns, class_names=['cumulative_per_day_CYCLE_ABORTED_day'], discretize_continuous=True)
-    # explained = explainer.explain_instance(scale_x[0], model_gb.predict, num_features=5)
-    # explainer.as_pyplot_figure()
-    # plt.show()
+    from lime import lime_tabular
+    explainer = lime_tabular.LimeTabularExplainer(scale_x, feature_names=x_cols, class_names=['cumulative_per_day_n_barcodes'], discretize_continuous=True)
+    explained = explainer.explain_instance(scale_x[0], model_gb.predict, num_features=5)
+    explainer.as_pyplot_figure()
+    plt.show()
     
     
     
