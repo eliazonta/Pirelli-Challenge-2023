@@ -11,8 +11,7 @@ import sklearn.preprocessing as preprocessing
 from custom_print import *
 from scipy import stats
 from sklearn import metrics, preprocessing, svm
-from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.ensemble import IsolationForest
 from sklearn.metrics import (accuracy_score, classification_report,
                              confusion_matrix, mean_squared_error, r2_score, silhouette_score)
 from sklearn.feature_selection import VarianceThreshold
