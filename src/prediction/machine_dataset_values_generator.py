@@ -9,11 +9,9 @@ import pandas as pd
 import seaborn as sns
 import sklearn.preprocessing as preprocessing
 from custom_print import *
-from src.prediction.evaluations_regressions import *
 from scipy import stats
 from sklearn import metrics, preprocessing, svm
-from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.ensemble import IsolationForest
 from sklearn.metrics import (accuracy_score, classification_report,
                              confusion_matrix, mean_squared_error, r2_score, silhouette_score)
 from sklearn.feature_selection import VarianceThreshold
@@ -42,7 +40,7 @@ class ColumnsOutput:
     event_delta_time = 'event_delta_time'
     day = 'y-m-day'
     hour = 'y-m-d-hour'
-    hour_3 = 'y-m-day-hour_3_rounded'
+    hour_6 = 'y-m-day-hour_6_rounded'
     month = 'month'
     status = 'status'
     
@@ -63,80 +61,89 @@ def get_data(mach_index):
     df['rounded_hour'] = df['rounded_timestamp'].dt.hour
 
     # Create a new column for split the timestamps every 3 hours
-    df[ColumnsOutput.hour_3] = df['rounded_timestamp'].dt.strftime('%y-%m-%d-%H')
+    df[ColumnsOutput.hour_6] = df['rounded_timestamp'].dt.strftime('%y-%m-%d-%H')
     df = df.drop(columns=['rounded_timestamp', 'rounded_year', 'rounded_month', 'rounded_day', 'rounded_hour'])
-    df[ColumnsOutput.hour_3] = pd.to_datetime(df[ColumnsOutput.hour_3])
+    df[ColumnsOutput.hour_6] = pd.to_datetime(df[ColumnsOutput.hour_6])
     print_configs(f"Machine: {current_machine}")
     return df, current_machine
 
-def get_working_time_3h(df):
-    working_time_per_3h = df.groupby([ColumnsOutput.hour_3])[ColumnsInput.time].agg(['min', 'max']).reset_index()
-    working_time_per_3h['work_time'] = (working_time_per_3h['max'] - working_time_per_3h['min']).dt.total_seconds()
+def get_working_time_6h(df):
+    working_time_per_6h = df.groupby([ColumnsOutput.hour_6])[ColumnsInput.time].agg(['min', 'max']).reset_index()
+    working_time_per_6h['work_time'] = (working_time_per_6h['max'] - working_time_per_6h['min']).dt.total_seconds()
 
-    working_time_per_3h_per_arm = df.groupby([ColumnsOutput.hour_3, ColumnsInput.machine_side])[ColumnsInput.time].agg(['min', 'max']).reset_index()
-    working_time_per_3h_per_arm['work_time'] = (working_time_per_3h_per_arm['max'] - working_time_per_3h_per_arm['min']).dt.total_seconds()
-    working_time_per_3h_per_right = working_time_per_3h_per_arm[working_time_per_3h_per_arm[ColumnsInput.machine_side] == 'R'].reset_index().drop('index', axis = 1)
-    working_time_per_3h_per_right.rename(columns={'work_time':'work_time_R'}, inplace=True)
-    working_time_per_3h_per_left = working_time_per_3h_per_arm[working_time_per_3h_per_arm[ColumnsInput.machine_side] == 'L'].reset_index().drop('index', axis = 1)
-    working_time_per_3h_per_left.rename(columns={'work_time':'work_time_L'}, inplace=True)
+    working_time_per_6h_per_arm = df.groupby([ColumnsOutput.hour_6, ColumnsInput.machine_side])[ColumnsInput.time].agg(['min', 'max']).reset_index()
+    working_time_per_6h_per_arm['work_time'] = (working_time_per_6h_per_arm['max'] - working_time_per_6h_per_arm['min']).dt.total_seconds()
+    working_time_per_6h_per_right = working_time_per_6h_per_arm[working_time_per_6h_per_arm[ColumnsInput.machine_side] == 'R'].reset_index().drop('index', axis = 1)
+    working_time_per_6h_per_right.rename(columns={'work_time':'work_time_R'}, inplace=True)
+    working_time_per_6h_per_left = working_time_per_6h_per_arm[working_time_per_6h_per_arm[ColumnsInput.machine_side] == 'L'].reset_index().drop('index', axis = 1)
+    working_time_per_6h_per_left.rename(columns={'work_time':'work_time_L'}, inplace=True)
     
-    working_time_per_3h.drop(['min', 'max'], axis=1, inplace=True)
-    working_time_per_3h_per_left.drop([ColumnsInput.machine_side,'min', 'max'], axis=1, inplace=True)
-    working_time_per_3h_per_right.drop([ColumnsInput.machine_side ,'min', 'max'], axis=1, inplace=True)
+    working_time_per_6h.drop(['min', 'max'], axis=1, inplace=True)
+    working_time_per_6h_per_left.drop([ColumnsInput.machine_side,'min', 'max'], axis=1, inplace=True)
+    working_time_per_6h_per_right.drop([ColumnsInput.machine_side ,'min', 'max'], axis=1, inplace=True)
+    
+    working_time_per_6h = pd.merge(working_time_per_6h, working_time_per_6h_per_left, on=ColumnsOutput.hour_6, how='left')
+    working_time_per_6h = pd.merge(working_time_per_6h, working_time_per_6h_per_right, on=ColumnsOutput.hour_6, how='left')
+    
+    print_configs(working_time_per_6h.head())
         
-    return working_time_per_3h, working_time_per_3h_per_left, working_time_per_3h_per_right
+    return working_time_per_6h
 
-def get_processed_barcodes_3h(df):
-    mach_tyre_per_3h = df.groupby([ColumnsOutput.hour_3])[ColumnsInput.barcode].nunique().dropna().reset_index()
-    mach_tyre_per_3h_per_arm = df.groupby([ColumnsOutput.hour_3, ColumnsInput.machine_side])[ColumnsInput.barcode].nunique().reset_index()
-    mach_tyre_per_3h_per_left = mach_tyre_per_3h_per_arm[mach_tyre_per_3h_per_arm[ColumnsInput.machine_side] == 'L'].reset_index().drop('index', axis = 1)
-    mach_tyre_per_3h_per_right = mach_tyre_per_3h_per_arm[mach_tyre_per_3h_per_arm[ColumnsInput.machine_side] == 'R'].reset_index().drop('index', axis = 1)
-    mach_tyre_per_3h_per_left.rename(columns={ColumnsInput.barcode:'n_barcode_L'}, inplace=True)
-    mach_tyre_per_3h_per_right.rename(columns={ColumnsInput.barcode:'n_barcode_R'}, inplace=True)
+def get_processed_barcodes_6h(df):
+    mach_tyre_per_6h = df.groupby([ColumnsOutput.hour_6])[ColumnsInput.barcode].nunique().dropna().reset_index()
+    mach_tyre_per_6h_per_arm = df.groupby([ColumnsOutput.hour_6, ColumnsInput.machine_side])[ColumnsInput.barcode].nunique().reset_index()
+    mach_tyre_per_6h_per_left = mach_tyre_per_6h_per_arm[mach_tyre_per_6h_per_arm[ColumnsInput.machine_side] == 'L'].reset_index().drop('index', axis = 1)
+    mach_tyre_per_6h_per_right = mach_tyre_per_6h_per_arm[mach_tyre_per_6h_per_arm[ColumnsInput.machine_side] == 'R'].reset_index().drop('index', axis = 1)
+    mach_tyre_per_6h_per_left.rename(columns={ColumnsInput.barcode:'n_barcode_L'}, inplace=True)
+    mach_tyre_per_6h_per_right.rename(columns={ColumnsInput.barcode:'n_barcode_R'}, inplace=True)
     
-    mach_tyre_per_3h_per_left.drop(ColumnsInput.machine_side, axis=1, inplace=True)
-    mach_tyre_per_3h_per_right.drop(ColumnsInput.machine_side, axis=1, inplace=True)
-    mach_tyre_per_3h.rename(columns={ColumnsInput.barcode:'n_barcode'}, inplace=True)
-    return mach_tyre_per_3h, mach_tyre_per_3h_per_left, mach_tyre_per_3h_per_right
+    mach_tyre_per_6h_per_left.drop(ColumnsInput.machine_side, axis=1, inplace=True)
+    mach_tyre_per_6h_per_right.drop(ColumnsInput.machine_side, axis=1, inplace=True)
+    mach_tyre_per_6h.rename(columns={ColumnsInput.barcode:'n_barcode'}, inplace=True)
+    
+    mach_tyre_per_6h = pd.merge(mach_tyre_per_6h, mach_tyre_per_6h_per_left, on=ColumnsOutput.hour_6, how='left')
+    mach_tyre_per_6h = pd.merge(mach_tyre_per_6h, mach_tyre_per_6h_per_right, on=ColumnsOutput.hour_6, how='left')
+    
+    return mach_tyre_per_6h
 
 def set_label(df):
-    df_with_labels = df.sort_values(ColumnsInput.time).groupby([ColumnsOutput.hour_3, ColumnsInput.machine_side,ColumnsInput.barcode], dropna=False)[ColumnsInput.event].agg(['first', 'last']).reset_index()
-    df_with_labels[ColumnsOutput.hour_3].nunique()
+    df_with_labels = df.sort_values(ColumnsInput.time).groupby([ColumnsOutput.hour_6, ColumnsInput.machine_side,ColumnsInput.barcode], dropna=False)[ColumnsInput.event].agg(['first', 'last']).reset_index()
+    df_with_labels[ColumnsOutput.hour_6].nunique()
     df_with_labels[ColumnsOutput.status] = False
     starting_event = ["LO_LOADER_IN_PRESS", "LO_LOADER_IN_PRESS_START"]
     ending_event = ["UN_UNLOADER_OUT", "UN_FORK_OUT", "UN_UNLOADER_OUT_STOP", "UN_FORK_OUT_STOP"]
 
     df_with_labels[ColumnsOutput.status] = df_with_labels.apply(lambda x: 'CYCLE_COMPLETED' if x['last'] in ending_event else 'CYCLE_ABORTED' if x['first'] in starting_event else 'CYCLE_NOT_STARTED', axis=1)
     df_with_labels.value_counts(ColumnsOutput.status)
-    cycle_statuses_per_3h = df_with_labels.groupby([ColumnsOutput.hour_3], dropna=False)[ColumnsOutput.status].value_counts().unstack(fill_value=0).reset_index()
+    cycle_statuses_per_6h = df_with_labels.groupby([ColumnsOutput.hour_6], dropna=False)[ColumnsOutput.status].value_counts().unstack(fill_value=0).reset_index()
 
     status_names = ['CYCLE_COMPLETED','CYCLE_ABORTED', 'CYCLE_NOT_STARTED']
 
     for status in status_names:
-        if status not in cycle_statuses_per_3h.columns:
+        if status not in cycle_statuses_per_6h.columns:
             print(f'{status} not in columns')
-            cycle_statuses_per_3h[status] = 0
-    statuses_per_3h = []
-    statuses_per_3h.append(cycle_statuses_per_3h.drop(['CYCLE_ABORTED', 'CYCLE_NOT_STARTED'], axis=1))
-    statuses_per_3h.append(cycle_statuses_per_3h.drop(['CYCLE_COMPLETED', 'CYCLE_NOT_STARTED'], axis=1))
-    statuses_per_3h.append(cycle_statuses_per_3h.drop(['CYCLE_COMPLETED', 'CYCLE_ABORTED'], axis=1))
-    for i in statuses_per_3h:
+            cycle_statuses_per_6h[status] = 0
+    statuses_per_6h = []
+    statuses_per_6h.append(cycle_statuses_per_6h.drop(['CYCLE_ABORTED', 'CYCLE_NOT_STARTED'], axis=1))
+    statuses_per_6h.append(cycle_statuses_per_6h.drop(['CYCLE_COMPLETED', 'CYCLE_NOT_STARTED'], axis=1))
+    statuses_per_6h.append(cycle_statuses_per_6h.drop(['CYCLE_COMPLETED', 'CYCLE_ABORTED'], axis=1))
+    for i in statuses_per_6h:
         i.rename(columns={'CYCLE_COMPLETED':'count', 'CYCLE_ABORTED':'count', 'CYCLE_NOT_STARTED':'count'}, inplace=True)
-    return df_with_labels , cycle_statuses_per_3h
+    return df_with_labels , cycle_statuses_per_6h
         
 def get_n_occurences_per_event(df):
-    n_events = df.groupby([ColumnsOutput.hour_3], dropna=False)[ColumnsInput.event].value_counts().unstack(fill_value=0).reset_index()
-    n_events_ = df.groupby([ColumnsOutput.hour_3, ColumnsInput.machine_side], dropna=False)[ColumnsInput.event].value_counts().unstack(fill_value=0).reset_index()
+    n_events = df.groupby([ColumnsOutput.hour_6], dropna=False)[ColumnsInput.event].value_counts().unstack(fill_value=0).reset_index()
+    n_events_ = df.groupby([ColumnsOutput.hour_6, ColumnsInput.machine_side], dropna=False)[ColumnsInput.event].value_counts().unstack(fill_value=0).reset_index()
     n_events_left = n_events_[n_events_[ColumnsInput.machine_side] == 'L'].reset_index()    
     
     
     for t in n_events_left.columns:
-        if t != ColumnsOutput.hour_3:
+        if t != ColumnsOutput.hour_6:
             n_events_left.rename(columns={t: t+'_L'}, inplace=True)
     
     n_events_right = n_events_[n_events_[ColumnsInput.machine_side] == 'R'].reset_index()
     for t in n_events_right.columns:
-        if t != ColumnsOutput.hour_3:
+        if t != ColumnsOutput.hour_6:
             n_events_right.rename(columns={t: t+'_R'}, inplace=True)
     
     n_events_left.drop([ColumnsInput.machine_side + '_L', 'index_L'], axis=1, inplace=True)
@@ -148,26 +155,26 @@ def get_n_occurences_per_event(df):
     
 
 def set_label_LR(label_cycle_status: pd.DataFrame):
-    cycle_statuses_per_3h_ = label_cycle_status.groupby([ColumnsOutput.hour_3, ColumnsInput.machine_side], dropna=False)[ColumnsOutput.status].value_counts().unstack(fill_value=0).reset_index()
-    cycle_statuses_per_3h_left = cycle_statuses_per_3h_[cycle_statuses_per_3h_[ColumnsInput.machine_side] == 'L'].reset_index()
-    cycle_statuses_per_3h_right = cycle_statuses_per_3h_[cycle_statuses_per_3h_[ColumnsInput.machine_side] == 'R'].reset_index()
+    cycle_statuses_per_6h_ = label_cycle_status.groupby([ColumnsOutput.hour_6, ColumnsInput.machine_side], dropna=False)[ColumnsOutput.status].value_counts().unstack(fill_value=0).reset_index()
+    cycle_statuses_per_6h_left = cycle_statuses_per_6h_[cycle_statuses_per_6h_[ColumnsInput.machine_side] == 'L'].reset_index()
+    cycle_statuses_per_6h_right = cycle_statuses_per_6h_[cycle_statuses_per_6h_[ColumnsInput.machine_side] == 'R'].reset_index()
 
     status_names = ['CYCLE_COMPLETED','CYCLE_ABORTED', 'CYCLE_NOT_STARTED']
 
     for status in status_names:
-        if status not in cycle_statuses_per_3h_left.columns:
-            cycle_statuses_per_3h_left[status] = 0
-        if status not in cycle_statuses_per_3h_right.columns:
-            cycle_statuses_per_3h_right[status] = 0
-    cycle_statuses_per_3h_left.drop([ColumnsInput.machine_side, 'index'], axis=1, inplace=True)
-    for t in cycle_statuses_per_3h_left.columns:
-        if t != ColumnsOutput.hour_3:
-            cycle_statuses_per_3h_left.rename(columns={t: t+'_L'}, inplace=True)
-    cycle_statuses_per_3h_right.drop([ColumnsInput.machine_side, 'index'], axis=1, inplace=True)
-    for t in cycle_statuses_per_3h_right.columns:
-        if t != ColumnsOutput.hour_3:
-            cycle_statuses_per_3h_right.rename(columns={t: t+'_R'}, inplace=True)
-    return cycle_statuses_per_3h_left, cycle_statuses_per_3h_right
+        if status not in cycle_statuses_per_6h_left.columns:
+            cycle_statuses_per_6h_left[status] = 0
+        if status not in cycle_statuses_per_6h_right.columns:
+            cycle_statuses_per_6h_right[status] = 0
+    cycle_statuses_per_6h_left.drop([ColumnsInput.machine_side, 'index'], axis=1, inplace=True)
+    for t in cycle_statuses_per_6h_left.columns:
+        if t != ColumnsOutput.hour_6:
+            cycle_statuses_per_6h_left.rename(columns={t: t+'_L'}, inplace=True)
+    cycle_statuses_per_6h_right.drop([ColumnsInput.machine_side, 'index'], axis=1, inplace=True)
+    for t in cycle_statuses_per_6h_right.columns:
+        if t != ColumnsOutput.hour_6:
+            cycle_statuses_per_6h_right.rename(columns={t: t+'_R'}, inplace=True)
+    return cycle_statuses_per_6h_left, cycle_statuses_per_6h_right
 
 def set_cumulative_label_TLR(df: pd.DataFrame):
     # Description:
@@ -181,11 +188,15 @@ def set_cumulative_label_TLR(df: pd.DataFrame):
     list_status = ['CYCLE_COMPLETED', 'CYCLE_ABORTED', 'CYCLE_NOT_STARTED', 'CYCLE_COMPLETED_L', 'CYCLE_ABORTED_L', 'CYCLE_NOT_STARTED_L', 'CYCLE_COMPLETED_R', 'CYCLE_ABORTED_R', 'CYCLE_NOT_STARTED_R']
     
     for i in list_status:
-        df[f'cumulative_per_day_{i}_day'] = df.groupby(df[ColumnsOutput.hour_3].dt.floor('D'))[i].cumsum()    
+        df[f'cumulative_per_day_{i}'] = df.groupby(df[ColumnsOutput.hour_6].dt.floor('D'))[i].cumsum()    
     return df
 
-def set_cumulative_barcode_TLR(label_cycle_status: pd.DataFrame):
-    pass
+def set_cumulative_barcode_TLR(df: pd.DataFrame):
+    list_barcode = ['n_barcode', 'n_barcode_L', 'n_barcode_R']
+    for i in list_barcode:
+        df[f'cumulative_per_day_{i}'] = df.groupby(df[ColumnsOutput.hour_6].dt.floor('D'))[i].cumsum()
+    print_info(df.head())
+    return df
 
 def set_machine_df(mach_index):
     # Description:
@@ -213,27 +224,27 @@ def set_machine_df(mach_index):
     # - n_events per each type of event, L and R as well: number of occurences of each event every 3 hours
     
     df, current_machine = get_data(mach_index)
-    df_n_events = get_n_occurences_per_event(df)    
+    # df_n_events = get_n_occurences_per_event(df)
     
-    df_work_time = get_working_time_3h(df)
-    df_barcodes = get_processed_barcodes_3h(df)
-    df_machine_ = pd.merge(df_barcodes[0], df_barcodes[1], on=ColumnsOutput.hour_3, how='left')
-    df_machine_ = pd.merge(df_machine_, df_barcodes[2], on=ColumnsOutput.hour_3, how='left')    
-    for i in df_work_time:
-        df_machine_ = pd.merge(df_machine_, i, on=ColumnsOutput.hour_3, how='left')
+    df_work_time = get_working_time_6h(df)
+    df_barcodes = get_processed_barcodes_6h(df)
+    df_cum_barcode = set_cumulative_barcode_TLR(df_barcodes)
+    df_machine_ = pd.merge(df_cum_barcode, df_work_time, on=ColumnsOutput.hour_6, how='left')
+    print_configs(df_machine_.head())
     
     df_label, df_div_by_label = set_label(df)
-    df_machine_ = pd.merge(df_machine_, df_div_by_label, on=ColumnsOutput.hour_3, how='left')
+    df_machine_ = pd.merge(df_machine_, df_div_by_label, on=ColumnsOutput.hour_6, how='left')
    
     df_label_LR = set_label_LR(df_label)
     for i in df_label_LR:
-        df_machine_ = pd.merge(df_machine_, i, on=ColumnsOutput.hour_3, how='left')
+        df_machine_ = pd.merge(df_machine_, i, on=ColumnsOutput.hour_6, how='left')
 
     # adding cumulative values:
     df_machine_ = set_cumulative_label_TLR(df_machine_)
-    for i in df_n_events:
-        df_machine_ = pd.merge(df_machine_, i, on=ColumnsOutput.hour_3, how='left')
+    # for i in df_n_events:
+    #     df_machine_ = pd.merge(df_machine_, i, on=ColumnsOutput.hour_6, how='left')
     df_machine_.fillna(0, inplace=True)
+    print_debugging(df_machine_.head())
     return df_machine_, current_machine
     
 def save_df(df, location):
@@ -370,11 +381,11 @@ class Cluster_Mach():
         
 
 if __name__ == "__main__":
-    # for i in range(len(os.listdir('src/Data/data_per_machine/2022/raw/'))):
-    #     df_machine, current_machine = set_machine_df(i)
-    #     save_df(df_machine, 'src/Data/data_per_machine/2022/processed/'+ current_machine + '.csv')
-    # df_machine, current_machine = set_machine_df(0)
-    # analyse_generated_dataset(0)
+    for i in range(len(os.listdir('src/Data/data_per_machine/2022/raw/'))):
+        df_machine, current_machine = set_machine_df(i)
+        save_df(df_machine, 'src/Data/data_per_machine/2022/processed_with_cumulatives/'+ current_machine + '.csv')
+    df_machine, current_machine = set_machine_df(0)
+    analyse_generated_dataset(0)
     # dfs = []
     # for i in range(len(os.listdir('src/Data/data_per_machine/2022/processed/'))):
     #     curr = get_df(i)
@@ -387,13 +398,13 @@ if __name__ == "__main__":
     
     # save_df(df, 'src/Data/data_per_machine/2022/all_mach_clusters.csv')
     
-    df = pd.read_csv('src/Data/data_per_machine/2022/all_mach_clusters.csv')
-    clusterizer = Cluster_Mach(df)
-    tmp_col = df[['y-m-day-hour_3_rounded', 'machine', 'cluster_label', 'cluster_label_L', 'cluster_label_R']]
-    df = df.drop(columns=['y-m-day-hour_3_rounded', 'machine', 'cluster_label', 'cluster_label_L', 'cluster_label_R'])
-    df = clusterizer.feature_selection(df)
-    df = tmp_col.join(df)
-    save = df.to_csv('src/Data/data_per_machine/2022/all_mach_clusters_selected.csv', index=False)
+    # df = pd.read_csv('src/Data/data_per_machine/2022/all_mach_clusters.csv')
+    # clusterizer = Cluster_Mach(df)
+    # tmp_col = df[['y-m-day-hour_3_rounded', 'machine', 'cluster_label', 'cluster_label_L', 'cluster_label_R']]
+    # df = df.drop(columns=['y-m-day-hour_3_rounded', 'machine', 'cluster_label', 'cluster_label_L', 'cluster_label_R'])
+    # df = clusterizer.feature_selection(df)
+    # df = tmp_col.join(df)
+    # save = df.to_csv('src/Data/data_per_machine/2022/all_mach_clusters_selected.csv', index=False)
     
     
     
