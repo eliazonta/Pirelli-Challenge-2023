@@ -30,23 +30,18 @@ def lasso_regression(x,y):
 
 def adaboost_regression(x,y):
     print_configs("Model: AdaBoost")
-    model = AdaBoostRegressor(random_state=0, n_estimators=100).fit(x, y)
+    model = AdaBoostRegressor(random_state=SEED, n_estimators=100).fit(x, y)
     return model
 
 def stack_regression(x,y):
-    estimators = [('gbr', HistGradientBoostingRegressor(random_state=SEED)), ('svr', SVR(kernel='rbf', C=1.0, epsilon=0.2))]
-    model = StackingRegressor(estimators=estimators, final_estimator=RandomForestRegressor(n_estimators=1000,random_state=SEED)).fit(x, y)
-    return model
-
-def log_regression(x,y):
-    print_configs("Model: Logistic Regression")
-    model = LogisticRegression(random_state=SEED).fit(x, y)
+    estimators = [('gbr', HistGradientBoostingRegressor(random_state=SEED)), ('lasso', Lasso(alpha=0.1))]
+    model = StackingRegressor(estimators=estimators, final_estimator= AdaBoostRegressor(n_estimators=5000,random_state=SEED)).fit(x, y)
     return model
 
 def svr_regression(x,y):
     # 'linear', 'poly', 'rbf', 'sigmoid', 'precomputed'
     print_configs("Model: SVR")
-    model = SVR(kernel='linear', C=1.0, epsilon=0.2).fit(x, y)
+    model = SVR(kernel='rbf', C=1.0, epsilon=0.2).fit(x, y)
     return model
     
 def lin_regr(x, y):
@@ -62,16 +57,6 @@ def grad_boost(x, y):
 def perceptron(x, y):
     print_debugging("Model: Perceptron")
     model = Perceptron(tol=1e-3, random_state=SEED).fit(x, y)
-    return model
-
-def naive_bayes(x, y):
-    print_debugging("Model: Naive Bayes")
-    model = GaussianNB().fit(x, y)
-    return model
-
-def theilsen(x, y):
-    print_debugging("Model: TheilSen")
-    model = TheilSenRegressor(random_state=SEED).fit(x, y)
     return model
 
 def ml_nn(x, y):
@@ -163,7 +148,7 @@ class Model_Evaluator():
     def get_x_y(self, df):
         cols = df.columns.to_list()
         for col in cols:
-            if 'cumulative_per_day_n_barcode' in col:
+            if 'cumulative_per_day_CYCLE_ABORTED' in col:
                 y = df[col].to_numpy()
         cols_to_drop = ['y-m-day-hour_6_rounded', 'cumulative_per_day_n_barcode',
         'cumulative_per_day_n_barcode_L', 'cumulative_per_day_n_barcode_R',
@@ -191,7 +176,7 @@ class Model_Evaluator():
         import lime
         from lime import lime_tabular
         import random
-        explainer = lime_tabular.LimeTabularExplainer(train, feature_names=x_cols, class_names=['cumulative_per_day_n_barcode'], verbose=True, mode='regression')
+        explainer = lime_tabular.LimeTabularExplainer(train, feature_names=x_cols, class_names=['cumulative_per_day_CYCLE_ABORTED'], verbose=True, mode='regression')
         figure, ax = plt.subplots(2,2)
         figure.set_size_inches(40,20)
         plt.subplots_adjust(left=0.17,
@@ -248,8 +233,6 @@ if __name__ == '__main__':
     model_svr, _ = model_eval.evaluations(scale_x,scale_y, svr_regression, desc = "SVR")
     model_lin, _ = model_eval.evaluations(scale_x,scale_y, lin_regr, desc = "Linear Regression")
     model_gb, _ = model_eval.evaluations(scale_x,scale_y, grad_boost, desc = "Gradient Boosting")
-    model_perceptron, _ = model_eval.evaluations(scale_x,scale_y, perceptron, desc = "Perceptron")
-    model_naive_bayes, _ = model_eval.evaluations(scale_x,scale_y, naive_bayes, desc = "Naive Bayes")
     model_ml_nn, _ = model_eval.evaluations(scale_x,scale_y, ml_nn, desc = "Multi Layer Perceptron")
     model_stack, data_used = model_eval.evaluations(scale_x,scale_y, stack_regression, desc = "Stacking")
     model_adaboost, _ = model_eval.evaluations(scale_x,scale_y, adaboost_regression, desc = "AdaBoost")
@@ -268,20 +251,20 @@ if __name__ == '__main__':
     
     ax1.plot(scale_y, label='Actual')
     
-    ax1.plot(model_gb.predict(scale_x), label='Gradient Boosting')
+    ax1.plot(model_ml_nn.predict(scale_x), label='NN')
     ax1.legend()
     ax1.grid()
-    ax1.set_xlim(0,300)
+    ax1.set_xlim(0,200)
     ax2.plot(scale_y, label='Actual')
-    ax2.plot(model_svr.predict(scale_x), label='SVR')
+    ax2.plot(model_stack.predict(scale_x), label='Stacking: HGB, Lasso, AdaBoost')
     ax2.legend()
     ax2.grid()
-    ax2.set_xlim(0,300)
+    ax2.set_xlim(0,200)
     ax3.plot(scale_y, label='Actual')
-    ax3.plot(model_ml_nn.predict(scale_x), label='NN')
+    ax3.plot(model_hist_gb.predict(scale_x), label='Hist Gradient Boosting')
     ax3.legend()
     ax3.grid()
-    ax3.set_xlim(0,300)
+    ax3.set_xlim(0,200)
     figure[0].set_size_inches(40,20)
     plt.xlabel(f'PCA Components: {x_cols}')
     plt.ylabel('Cumulative Aborted Cycles per day')
@@ -293,5 +276,5 @@ if __name__ == '__main__':
     test = data_used[1]
     y_exp = data_used[3]
     
-    model_eval.explain_model(model_gb, train, test, x_cols, y_exp)
+    model_eval.explain_model(model_hist_gb, train, test, x_cols, y_exp)
     
