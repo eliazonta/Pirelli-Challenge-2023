@@ -76,19 +76,24 @@ def eval_time_per_cycle(df_list, mach_names):
         df = get_time_diff(df)
         dfs.append(df)
     df = pd.concat(dfs)
+    
     mean = df.groupby('Cycle_Status')['Between_Cycle_Time'].mean()
     std = df.groupby('Cycle_Status')['Between_Cycle_Time'].std()
     n_occurences = df.groupby('Cycle_Status')['Between_Cycle_Time'].value_counts()
+    
+    mean = mean.drop(index='CYCLE_NOT_STARTED')
+    std = std.drop(index='CYCLE_NOT_STARTED')
+    figure , ax = plt.subplots()
     print_info(f"Mean time between cycles: {mean}")
     print_info(f"Std time between cycles: {std}")
     print_info(f"Number of occurences: {n_occurences}")
-    
-    sns.set_theme(style="whitegrid")
-    plt.figure(figsize=(20,10))
-    plt.title('Time between cycles')
-    plt.ylabel('Time in seconds')
-    plt.xlabel('Cycle status')
-    
+    bars = ax.bar(mean.index, mean.values, yerr=std.values)
+    ax.bar_label(bars)
+    ax.set_title('Mean time between cycles')
+    ax.set_ylabel('Time (s)')
+    ax.set_xlabel('Cycle status')
+    plt.grid()
+    plt.savefig('src/prediction/figures/mean_time_between_cycles.png')
     plt.show()
     
 if __name__ == '__main__':

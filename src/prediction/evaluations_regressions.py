@@ -34,8 +34,10 @@ def adaboost_regression(x,y):
     return model
 
 def stack_regression(x,y):
-    estimators = [('gbr', HistGradientBoostingRegressor(random_state=SEED)), ('lasso', Lasso(alpha=0.1))]
-    model = StackingRegressor(estimators=estimators, final_estimator= AdaBoostRegressor(n_estimators=5000,random_state=SEED)).fit(x, y)
+    estimators = [('gbr', HistGradientBoostingRegressor(random_state=SEED)), ('lasso', Lasso(alpha=0.1)),
+                  ('adaboost', AdaBoostRegressor(random_state=SEED, n_estimators=500)), ('gb', GradientBoostingRegressor( random_state=SEED)),
+                  ('lin', LinearRegression()), ('svr', SVR(kernel='rbf', C=1.0, epsilon=0.2))]
+    model = StackingRegressor(estimators=estimators, final_estimator= RandomForestRegressor(n_estimators=1000,random_state=SEED)).fit(x, y)
     return model
 
 def svr_regression(x,y):
@@ -51,6 +53,7 @@ def lin_regr(x, y):
 
 def grad_boost(x, y):
     print_configs("Model: Gradient Boosting")
+    # 'poisson', 'quantile'
     model = GradientBoostingRegressor(random_state=SEED).fit(x, y)
     return model
 
@@ -119,8 +122,9 @@ class Model_Evaluator():
         return model, data_used
 
     def get_data(self, mach_index):
-        file_dir = 'src/Data/data_per_machine/2022/processed_with_cumulatives/'
+        file_dir = 'src/Data/data_per_machine/2022/processed_with_cumulatives_n_features/'
         file_list = os.listdir(file_dir)
+        print_configs(f"Number of files: {len(file_list)}")
         mach_name = [file.replace('.csv','') for file in file_list]
         file = file_dir + file_list[mach_index]
         df = pd.read_csv(file)
@@ -148,11 +152,13 @@ class Model_Evaluator():
     def get_x_y(self, df):
         cols = df.columns.to_list()
         for col in cols:
-            if 'cumulative_per_day_CYCLE_ABORTED' in col:
+            if 'cumulative_per_day_n_barcode' in col:
                 y = df[col].to_numpy()
         cols_to_drop = ['y-m-day-hour_6_rounded', 'cumulative_per_day_n_barcode',
         'cumulative_per_day_n_barcode_L', 'cumulative_per_day_n_barcode_R',
         'CYCLE_NOT_STARTED', 'CYCLE_NOT_STARTED_L', 'CYCLE_NOT_STARTED_R',
+        'CYCLE_ABORTED', 'CYCLE_ABORTED_L', 'CYCLE_ABORTED_R',
+        'CYCLE_COMPLETED', 'CYCLE_COMPLETED_L', 'CYCLE_COMPLETED_R',
         'cumulative_per_day_CYCLE_COMPLETED',
         'cumulative_per_day_CYCLE_ABORTED',
         'cumulative_per_day_CYCLE_NOT_STARTED',
@@ -187,19 +193,19 @@ class Model_Evaluator():
                     hspace=0.4)
         # plt.subplot_tool()
         for i in  range(4):
-            var = random.randint(0, len(test)-1)
-            exp = explainer.explain_instance(test[var], model.predict, num_features=3)
+            var = random.randint(0, 500)
+            exp = explainer.explain_instance(test[var], model.predict, num_features=5)
             explanation_list = exp.as_list()
             clr = ['r' if item[1] < 0 else 'g' for item in explanation_list]
             ax[i//2][i%2].barh([item[0] for item in explanation_list], [item[1] for item in explanation_list], color=clr)
             ax[i//2][i%2].set_title(f'Prediction: {model.predict(test[var].reshape(1,-1))}, Actual: {scale_y[var]}')
             ax[i//2][i%2].set_xlabel('feature importance')
             ax[i//2][i%2].set_ylabel('Features')
-            ax[i//2][i%2].set_xlim(-3,3)
-            ax[i//2][i%2].set_ylim(-1,3)
+            ax[i//2][i%2].set_xlim(-4,4)
+            ax[i//2][i%2].set_ylim(-1,5)
             ax[i//2][i%2].set_yticks([item[0] for item in explanation_list])
             ax[i//2][i%2].set_yticklabels([item[0] for item in explanation_list])
-            ax[i//2][i%2].set_xticks([i for i in range(-3,3)])
+            ax[i//2][i%2].set_xticks([i for i in range(-4,4)])
             ax[i//2][i%2].invert_yaxis()
             ax[i//2][i%2].grid()
         plt.savefig('src/prediction/figures/explanation_of_model_LIME.png')
@@ -212,6 +218,7 @@ if __name__ == '__main__':
         df, current_machine = model_eval.get_data(i)
         dfs.append(df)
     df = pd.concat(dfs)
+    df = df.fillna(0)
     df_tot, df_L, df_R = model_eval.split_tot_L_R_df(df)
     df_tot = model_eval.remove_outliers(df_tot)
     
@@ -233,48 +240,56 @@ if __name__ == '__main__':
     model_svr, _ = model_eval.evaluations(scale_x,scale_y, svr_regression, desc = "SVR")
     model_lin, _ = model_eval.evaluations(scale_x,scale_y, lin_regr, desc = "Linear Regression")
     model_gb, _ = model_eval.evaluations(scale_x,scale_y, grad_boost, desc = "Gradient Boosting")
-    model_ml_nn, _ = model_eval.evaluations(scale_x,scale_y, ml_nn, desc = "Multi Layer Perceptron")
     model_stack, data_used = model_eval.evaluations(scale_x,scale_y, stack_regression, desc = "Stacking")
-    model_adaboost, _ = model_eval.evaluations(scale_x,scale_y, adaboost_regression, desc = "AdaBoost")
-    model_lasso, _ = model_eval.evaluations(scale_x,scale_y, lasso_regression, desc = "Lasso Regression")
-    model_hist_gb, _ = model_eval.evaluations(scale_x,scale_y, hist_gb_regression, desc = "Hist Gradient Boosting")
+    # model_adaboost, _ = model_eval.evaluations(scale_x,scale_y, adaboost_regression, desc = "AdaBoost")
+    # model_lasso, _ = model_eval.evaluations(scale_x,scale_y, lasso_regression, desc = "Lasso Regression")
+    # model_hist_gb, _ = model_eval.evaluations(scale_x,scale_y, hist_gb_regression, desc = "Hist Gradient Boosting")
     
     
     # model_gb_ = evaluations_on_new_data(scale_x,scale_y, grad_boost, desc = "Gradient Boosting")
-    
-    figure = plt.subplots(10,3)
-    ax1 = plt.subplot(3,1,1)
-    ax2 = plt.subplot(3,1,2)
-    ax3 = plt.subplot(3,1,3)
-    
-    
-    
-    ax1.plot(scale_y, label='Actual')
-    
-    ax1.plot(model_ml_nn.predict(scale_x), label='NN')
-    ax1.legend()
-    ax1.grid()
-    ax1.set_xlim(0,200)
-    ax2.plot(scale_y, label='Actual')
-    ax2.plot(model_stack.predict(scale_x), label='Stacking: HGB, Lasso, AdaBoost')
-    ax2.legend()
-    ax2.grid()
-    ax2.set_xlim(0,200)
-    ax3.plot(scale_y, label='Actual')
-    ax3.plot(model_hist_gb.predict(scale_x), label='Hist Gradient Boosting')
-    ax3.legend()
-    ax3.grid()
-    ax3.set_xlim(0,200)
-    figure[0].set_size_inches(40,20)
-    plt.xlabel(f'PCA Components: {x_cols}')
-    plt.ylabel('Cumulative Aborted Cycles per day')
-    plt.savefig('src/prediction/figures/evaluations_of_models_PCA_Over_COmulative_Cycle_Aborted.png')
-    plt.show()
-    
     
     train = data_used[0]
     test = data_used[1]
     y_exp = data_used[3]
     
-    model_eval.explain_model(model_hist_gb, train, test, x_cols, y_exp)
+    x_test = data_used[1]
+    y_test = data_used[3]
+    
+    x_test_pca = pca.transform(x_test)
+    
+    
+    # figure = plt.subplots(8,3)
+    # ax1 = plt.subplot(3,1,1)
+    # ax2 = plt.subplot(3,1,2)
+    # ax3 = plt.subplot(3,1,3)
+    
+    
+    
+    # ax1.plot(y_test, label='Actual')
+    
+    # ax1.plot(model_svr.predict(x_test), label='SVR')
+    # ax1.legend()
+    # ax1.grid()
+    # ax1.set_xlim(100,200)
+    # ax2.plot(y_test, label='Actual')
+    # ax2.plot(model_gb.predict(x_test), label='Gradient Boosting')
+    # ax2.legend()
+    # ax2.grid()
+    # ax2.set_xlim(100,200)
+    # ax3.plot(y_test, label='Actual')
+    # ax3.plot(model_stack.predict(x_test), label='Stacking: HGB, Lasso, AdaBoost,\nGB, Lin, SVR')
+    
+    # ax3.legend()
+    # ax3.grid()
+    # ax3.set_xlim(100,200)
+    # figure[0].set_size_inches(40,20)
+    # plt.xlabel(f'PCA Components, dataset festures: {len(x_cols)}')
+    # plt.ylabel('Cumulative n barcodes per day')
+    # plt.savefig('src/prediction/figures/evaluations_of_models_PCA_Over_COmulative_n_barcodes.png')
+    # plt.show()
+    
+    
+    
+    
+    model_eval.explain_model(model_stack, train, test, x_cols, y_exp)
     

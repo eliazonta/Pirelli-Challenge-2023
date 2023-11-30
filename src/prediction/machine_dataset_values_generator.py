@@ -238,13 +238,14 @@ def set_machine_df(mach_index):
     df_label_LR = set_label_LR(df_label)
     for i in df_label_LR:
         df_machine_ = pd.merge(df_machine_, i, on=ColumnsOutput.hour_6, how='left')
-
+    df_n_events = get_n_occurences_per_event(df)
     # adding cumulative values:
     df_machine_ = set_cumulative_label_TLR(df_machine_)
-    # for i in df_n_events:
-    #     df_machine_ = pd.merge(df_machine_, i, on=ColumnsOutput.hour_6, how='left')
+    for i in df_n_events:
+        df_machine_ = pd.merge(df_machine_, i, on=ColumnsOutput.hour_6, how='left')
     df_machine_.fillna(0, inplace=True)
     print_debugging(df_machine_.head())
+    
     return df_machine_, current_machine
     
 def save_df(df, location):
@@ -283,7 +284,7 @@ def analyse_generated_dataset(mach_index):
         plt.close('all')
         
 def get_df(index):
-    mach_list = os.listdir('src/Data/data_per_machine/2022/processed/')
+    mach_list = os.listdir('src/Data/data_per_machine/2022/processed/*.csv')
     current_machine = mach_list[index].replace('.csv','')
     df = pd.read_csv('src/Data/data_per_machine/2022/processed/' + mach_list[index])
     df['machine'] = current_machine
@@ -383,7 +384,7 @@ class Cluster_Mach():
 if __name__ == "__main__":
     for i in range(len(os.listdir('src/Data/data_per_machine/2022/raw/'))):
         df_machine, current_machine = set_machine_df(i)
-        save_df(df_machine, 'src/Data/data_per_machine/2022/processed_with_cumulatives/'+ current_machine + '.csv')
+        save_df(df_machine, 'src/Data/data_per_machine/2022/processed_with_cumulatives_n_features/'+ current_machine + '.csv')
     df_machine, current_machine = set_machine_df(0)
     analyse_generated_dataset(0)
     # dfs = []
