@@ -30,8 +30,7 @@ Contains all the data exploration notebooks, in particular:
 ## Prediction <a name="PRED"></a>
 Contains all the scripts for the model creation and the prediction. The most relevant are:
 - machine_dataset_values_generator.py: generate the preprocessed data per machine
-- evaluation.py: contains the models used and tested, the data preprocessing, tranformation and fitting to the models, model training, evaluation metrics, prediction and plots.
-- WORK in PROGRESS: evaluation should be complted with more graph and plots, ideally use [lime](https://lime-ml.readthedocs.io/en/latest/) to explain the model prediction.
+- evaluation.py: contains the models used and tested, the data preprocessing, tranformation and fitting to the models, model training, evaluation metrics, predictions, plots and model explaination with [lime](https://lime-ml.readthedocs.io).
 
 ## Authors <a name="AUTHORS"></a>
 - Anna Elise Høfde
